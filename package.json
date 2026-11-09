@@ -1,0 +1,31 @@
+{
+  "name": "mc-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "基于 mineflayer 的 Minecraft NPC Agent（MVP：能和玩家聊天）",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test-server": "node scripts/test-server.cjs",
+    "say": "node scripts/say.cjs"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "minecraft",
+    "mineflayer",
+    "agent",
+    "llm",
+    "npc"
+  ],
+  "dependencies": {
+    "dotenv": "^18.0.10",
+    "mineflayer": "^4.39.0"
+  },
+  "devDependencies": {
+    "flying-squid": "^1.12.0"
+  }
+}
