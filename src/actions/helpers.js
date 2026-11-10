@@ -6,14 +6,36 @@ const { pathfinder, Movements } = pathfinderPkg;
 
 // ---------- 寻路 ----------
 
-/** 装寻路插件。NPC 走路时绝不挖方块、不搭方块，免得破坏别人的建筑 */
+/** 装寻路插件。默认是“安全”走法：绝不挖方块、不搭方块，免得破坏别人的建筑 */
 export function setupPathfinder(bot) {
   bot.loadPlugin(pathfinder);
+  useMovementProfile(bot, 'safe');
+}
+
+/**
+ * 切换走法：
+ *   safe —— 只走路，不挖不搭（公网服聊天模式）
+ *   free —— 可以挖穿方块、垫方块往上爬、搭路（自主发育模式，只在测试服用）
+ */
+export function useMovementProfile(bot, profile) {
   const movements = new Movements(bot);
-  movements.canDig = false;
-  movements.allow1by1towers = false;
-  movements.scafoldingBlocks = [];
+  if (profile === 'safe') {
+    movements.canDig = false;
+    movements.allow1by1towers = false;
+    movements.scafoldingBlocks = [];
+  } else {
+    // 自己放的工作台、熔炉、箱子不要挖掉
+    for (const name of ['crafting_table', 'furnace', 'chest', 'bed']) {
+      const block = bot.registry.blocksByName[name];
+      if (block) movements.blocksCantBreak.add(block.id);
+    }
+    // 垫脚用的方块：泥土、圆石、深板岩圆石、下界岩
+    movements.scafoldingBlocks = ['dirt', 'cobblestone', 'cobbled_deepslate', 'netherrack']
+      .map((name) => bot.registry.itemsByName[name]?.id)
+      .filter(Boolean);
+  }
   bot.pathfinder.setMovements(movements);
+  bot.pathfinder.thinkTimeout = profile === 'safe' ? 5000 : 10000; // 挖路的路线复杂，多给点时间算
 }
 
 /** 立刻停下所有移动和挖掘（setGoal(null) 立即生效；pathfinder.stop() 要等下一帧，会误杀新目标） */
@@ -28,19 +50,32 @@ export function haltBot(bot) {
  * @param {import('mineflayer').Bot} bot
  * @param {object} goal  mineflayer-pathfinder 的 goal
  */
-export async function goTo(bot, goal, { signal, timeoutMs = 30000 } = {}) {
+export async function goTo(bot, goal, { signal, timeoutMs = 30000, stuckMs = 20000 } = {}) {
   throwIfAborted(signal);
 
   const walking = bot.pathfinder.goto(goal);
   walking.catch(() => {}); // 被我们主动打断时它也会报错，这里先接住，避免“未处理的 Promise 错误”
 
   let timer;
+  let watchdog;
   let onAbort;
   const interrupted = new Promise((_, reject) => {
     timer = setTimeout(() => {
       bot.pathfinder.setGoal(null);
       reject(new Error(`走了 ${Math.round(timeoutMs / 1000)} 秒还没到，放弃了`));
     }, timeoutMs);
+    // 卡住检测：stuckMs 内一格都没挪、也没在挖方块 → 别傻等到超时，早点放弃换目标
+    let lastPosition = bot.entity.position.clone();
+    let lastProgress = Date.now();
+    watchdog = setInterval(() => {
+      if (bot.entity.position.distanceTo(lastPosition) > 1 || bot.targetDigBlock) {
+        lastPosition = bot.entity.position.clone();
+        lastProgress = Date.now();
+      } else if (Date.now() - lastProgress > stuckMs) {
+        bot.pathfinder.setGoal(null);
+        reject(new Error(`卡住了，${Math.round(stuckMs / 1000)} 秒没挪动`));
+      }
+    }, 1000);
     onAbort = () => {
       bot.pathfinder.setGoal(null);
       reject(abortError(signal));
@@ -55,6 +90,7 @@ export async function goTo(bot, goal, { signal, timeoutMs = 30000 } = {}) {
     throw new Error(PATH_ERRORS[err.name] ?? err.message);
   } finally {
     clearTimeout(timer);
+    clearInterval(watchdog);
     signal?.removeEventListener('abort', onAbort);
   }
 
@@ -70,6 +106,33 @@ const PATH_ERRORS = {
   GoalChanged: '走到一半被别的事打断了',
   PathStopped: '走到一半被叫停了',
 };
+
+// ---------- 合成 ----------
+
+/**
+ * 合成并确认真的做出来了。
+ * 合成 = 往合成格里点几下再把成品点出来，每一下都要服务器确认。刚打开工作台、背包刚变动时，
+ * 服务器偶尔会默默忽略这些点击（不报错，材料退回背包，成品没出来）。所以做完数一数，没变多就重试。
+ * @param {() => object | undefined} findRecipe 每次重试前重新找配方（背包变了，能用的配方也会变）
+ * @returns {Promise<number>} 实际多出来的数量
+ */
+export async function craftVerified(bot, itemName, findRecipe, times, table, signal) {
+  const before = countItem(bot, itemName);
+  let lastError = null;
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    await sleep(250 * attempt, signal);
+    const recipe = findRecipe();
+    if (!recipe) break;
+    try {
+      await bot.craft(recipe, times, table ?? undefined);
+    } catch (err) {
+      lastError = err;
+    }
+    await sleep(400, signal);
+    if (countItem(bot, itemName) > before) return countItem(bot, itemName) - before;
+  }
+  throw new Error(`合成 ${itemName} 没成功${lastError ? `（${lastError.message}）` : '（服务器没认这次合成）'}`);
+}
 
 // ---------- 取消与等待 ----------
 

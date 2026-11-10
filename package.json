@@ -10,7 +10,8 @@
     "dev": "node --watch src/index.js",
     "test-server": "bash scripts/paper-server.sh",
     "test-server:lite": "node scripts/test-server.cjs",
-    "say": "node scripts/say.cjs"
+    "say": "node scripts/say.cjs",
+    "survive": "node scripts/survive.mjs"
   },
   "engines": {
     "node": ">=20"

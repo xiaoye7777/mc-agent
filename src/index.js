@@ -8,19 +8,30 @@
 import { config } from './config.js';
 import { startBot } from './bot.js';
 import { createActionRegistry } from './actions/index.js';
+import { startAutonomy } from './autonomy/index.js';
 import { createChatHandler } from './chat/chatHandler.js';
 import { createLogger } from './logger.js';
 
 const log = createLogger('main');
 
-const actions = createActionRegistry({ allowDig: config.npc.allowDig, allowCombat: config.npc.allowCombat });
+const actions = createActionRegistry({
+  allowDig: config.npc.allowDig,
+  allowCombat: config.npc.allowCombat,
+  allowAutonomy: config.npc.autonomy !== 'off',
+});
 const chat = createChatHandler({ npc: config.npc, llm: config.llm, actions });
 
-log.info(`能力开关：挖方块 ${config.npc.allowDig ? '开' : '关'}，打怪 ${config.npc.allowCombat ? '开' : '关'}`);
+log.info(
+  `能力开关：挖方块 ${config.npc.allowDig ? '开' : '关'}，打怪 ${config.npc.allowCombat ? '开' : '关'}，自主发育 ${config.npc.autonomy}`,
+);
 
 const botHandle = startBot(config.minecraft, (bot) => {
   actions.attach(bot); // 先装好动作（寻路插件、本能反应），聊天里才能调用
   chat.attach(bot);
+  if (config.npc.autonomy === 'auto') {
+    // 等区块加载一会儿再开始，不然一进服什么都“看不见”
+    setTimeout(() => log.info(startAutonomy({ bot, tasks: actions.tasks })), 3000);
+  }
 });
 
 // Ctrl+C 时让机器人体面下线，而不是直接掉线

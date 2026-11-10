@@ -43,6 +43,8 @@ export const config = {
     allowDig: readBoolean('NPC_ALLOW_DIG', true),
     // 允许打敌对怪物（永远不打玩家和动物）
     allowCombat: readBoolean('NPC_ALLOW_COMBAT', true),
+    // 自主发育：off = 关闭；on = 玩家让它“自己去发育”时才开始；auto = 进服就开始。会大量挖方块、放方块，只在测试服用！
+    autonomy: readString('NPC_AUTONOMY', 'off'),
   },
 
   // —— 大模型（任意 OpenAI 兼容接口，默认 DeepSeek）——
