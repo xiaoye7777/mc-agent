@@ -12,6 +12,12 @@ function readNumber(name, fallback) {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
+function readBoolean(name, fallback) {
+  const value = process.env[name]?.trim().toLowerCase();
+  if (value === undefined || value === '') return fallback;
+  return !['false', '0', 'no', 'off'].includes(value);
+}
+
 export const config = {
   // —— Minecraft 连接 ——
   minecraft: {
@@ -33,6 +39,10 @@ export const config = {
     chatTrigger: readString('CHAT_TRIGGER', 'mention'),
     // 每个玩家记住最近多少条消息（一问一答算 2 条）
     memorySize: readNumber('CHAT_MEMORY_SIZE', 12),
+    // 允许挖天然方块（原木、泥土、石头、矿石……，只在玩家要求时挖，建材一律不碰）
+    allowDig: readBoolean('NPC_ALLOW_DIG', true),
+    // 允许打敌对怪物（永远不打玩家和动物）
+    allowCombat: readBoolean('NPC_ALLOW_COMBAT', true),
   },
 
   // —— 大模型（任意 OpenAI 兼容接口，默认 DeepSeek）——

@@ -1,8 +1,9 @@
-// 本地测试服：用纯 Node 写的 Minecraft 服务端（flying-squid），不用装 Java、不用开游戏。
+// 简易测试服：用纯 Node 写的 Minecraft 服务端（flying-squid），不用装 Java、不用开游戏。
+// 注意：它看不见玩家、没有树和怪，只适合测聊天。测移动、砍树、打怪请用 npm run test-server（Paper）。
 // 功能很简陋（没有生物、没有红石），但进服、聊天完全够用，适合调试 NPC 的对话。
 //
 // 用法：
-//   终端 1：npm run test-server
+//   终端 1：npm run test-server:lite
 //   终端 2：npm start            （.env 里 MC_HOST=localhost、MC_PORT=25565）
 //   然后用游戏客户端（1.21.4 + 离线账号）连 localhost，或者跑 scripts/say.cjs 模拟玩家说话
 const mcServer = require('flying-squid');
