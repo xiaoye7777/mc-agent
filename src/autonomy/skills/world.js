@@ -56,6 +56,31 @@ function scoreSpot(feet, position) {
   return Math.abs(position.x - feet.x) + Math.abs(position.z - feet.z) + Math.abs(position.y - feet.y) * 2;
 }
 
+// 挖矿挖出来的“垃圾”：最多留多少个（0 = 全扔）。泥土、圆石留一些用来垫脚搭路
+const JUNK_KEEP = {
+  dirt: 16, cobblestone: 64, cobbled_deepslate: 16, netherrack: 16,
+  granite: 0, diorite: 0, andesite: 0, tuff: 0, calcite: 0, gravel: 0, sand: 0,
+  wheat_seeds: 0, poppy: 0, dandelion: 0, rotten_flesh: 0, spider_eye: 0, bone: 0, string: 0,
+};
+
+/** 背包快满时扔掉挖矿挖出来的杂物（花岗岩、闪长岩、砂砾……），垫脚用的泥土、圆石留一些 */
+export async function tidyInventory(ctx, minFreeSlots = 3) {
+  const { bot } = ctx;
+  if (bot.inventory.emptySlotCount() >= minFreeSlots) return;
+  const counts = {};
+  for (const item of bot.inventory.items()) counts[item.name] = (counts[item.name] ?? 0) + item.count;
+  for (const [name, keep] of Object.entries(JUNK_KEEP)) {
+    const extra = (counts[name] ?? 0) - keep;
+    if (extra <= 0) continue;
+    try {
+      await bot.toss(bot.registry.itemsByName[name].id, null, extra);
+    } catch {
+      // 扔失败就算了，下次再扔
+    }
+  }
+  ctx.log(`背包快满了，扔了些杂物（现在空 ${bot.inventory.emptySlotCount()} 格）`);
+}
+
 /** 走过去把某个位置附近的掉落物捡起来（够不着的就算了） */
 export async function collectDrops(ctx, center, radius = 6) {
   const { bot, signal } = ctx;

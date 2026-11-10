@@ -18,6 +18,8 @@ const { goals } = pathfinderPkg;
 const log = createLogger('autonomy');
 
 const MAX_ATTEMPTS = 5;
+// 氧气（满值 20）低于这个值就先别干活了，游上去换气
+const LOW_OXYGEN = 10;
 
 /**
  * 开始自主发育（已经在发育就不重复开始）
@@ -77,11 +79,19 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
     // 每次尝试一个独立的“死亡中断”信号：死了只中断这一步，不结束整个发育任务
     const step = new AbortController();
     let deathPosition = null;
+    let drowning = false;
     const onDeath = () => {
       deathPosition = bot.entity.position.clone();
       step.abort('死了');
     };
+    const onBreath = (oxygen) => {
+      if (oxygen < LOW_OXYGEN && !drowning) {
+        drowning = true;
+        step.abort('快淹死了');
+      }
+    };
     bot.once('death', onDeath);
+    bot.on('ownBreath', onBreath); // 见 survival.js 的 trackOwnOxygen：mineflayer 自带的氧气值不可靠
 
     const stepSignal = AbortSignal.any([signal, step.signal]);
     const ctx = makeContext(bot, stepSignal, setProgress, state);
@@ -91,6 +101,12 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
       return;
     } catch (err) {
       if (signal.aborted) throw err; // 玩家叫停
+      if (drowning && !deathPosition) {
+        log.warn('氧气不够了，先游上去换气');
+        await surfaceForAir(makeContext(bot, signal, setProgress, state));
+        attempt -= 1;
+        continue;
+      }
       if (deathPosition) {
         log.warn(`死在 ${deathPosition}，重生后回去捡东西`);
         await recoverAfterDeath(makeContext(bot, signal, setProgress, state), deathPosition);
@@ -103,6 +119,7 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
       if (attempt >= 2) await explore(ctx).catch(() => {});
     } finally {
       bot.removeListener('death', onDeath);
+      bot.removeListener('ownBreath', onBreath);
     }
   }
 }
@@ -121,6 +138,23 @@ function makeContext(bot, signal, setProgress, state) {
   ctx.obtain = (item, count) => obtain(ctx, item, count);
   ctx.rest = () => restIfNight(ctx);
   return ctx;
+}
+
+/** 在水里憋不住了：停下手上的事，一直往上游，直到氧气回满（最多 20 秒） */
+async function surfaceForAir(ctx) {
+  const { bot } = ctx;
+  bot.pathfinder.setGoal(null);
+  bot.setControlState('jump', true);
+  bot.setControlState('forward', true);
+  const deadline = Date.now() + 20000;
+  try {
+    while (bot.ownOxygen < 20 && Date.now() < deadline && bot.health > 0) {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+    }
+  } finally {
+    bot.clearControlStates();
+  }
+  ctx.log(bot.ownOxygen >= 20 ? '换好气了' : '没能游上去换气');
 }
 
 /** 等重生，然后回死亡地点捡东西（太远就算了；掉落物 5 分钟后会消失） */

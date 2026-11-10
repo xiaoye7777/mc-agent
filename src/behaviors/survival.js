@@ -34,6 +34,8 @@ const BAD_FOODS = new Set(['rotten_flesh', 'spider_eye', 'poisonous_potato', 'pu
  * @param {{ tasks: ReturnType<import('../actions/taskManager.js').createTaskManager>, allowCombat: boolean }} options
  */
 export function setupSurvival(bot, { tasks, allowCombat }) {
+  trackOwnOxygen(bot);
+
   // ---- 饿了就吃 ----
   let eating = false;
   bot.on('health', async () => {
@@ -82,6 +84,25 @@ export function setupSurvival(bot, { tasks, allowCombat }) {
     log.warn('NPC 死了，等待重生');
     // 自主发育自己会处理死亡（重生后回去捡东西接着做），别的任务直接取消
     if (tasks.current?.kind !== 'autonomy') tasks.cancel('NPC 死了');
+  });
+}
+
+/**
+ * 自己的氧气值（满值 20）。不用 mineflayer 自带的 bot.oxygenLevel：
+ * 它在处理实体数据时没区分是谁的，附近的鱼、鱿鱼的氧气也会写到 bot.oxygenLevel 上，
+ * 结果机器人以为自己快淹死了（测试时因此死循环“上去换气”）。这里只认自己实体的 air_supply。
+ */
+function trackOwnOxygen(bot) {
+  const airSupplyIndex = bot.registry.entitiesByName.player.metadataKeys?.indexOf('air_supply') ?? 1;
+  bot.ownOxygen = 20;
+  bot._client.on('entity_metadata', (packet) => {
+    if (!bot.entity || packet.entityId !== bot.entity.id) return;
+    for (const entry of packet.metadata) {
+      if (entry.key === airSupplyIndex) {
+        bot.ownOxygen = Math.round(entry.value / 15);
+        bot.emit('ownBreath', bot.ownOxygen);
+      }
+    }
   });
 }
 

@@ -5,7 +5,7 @@
 // 机器人可以直接挖一条路过去。
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { goTo, throwIfAborted } from '../../actions/helpers.js';
-import { collectDrops, explore } from './world.js';
+import { collectDrops, explore, tidyInventory } from './world.js';
 
 const { goals } = pathfinderPkg;
 
@@ -29,6 +29,7 @@ export async function mineUntil(ctx, blockNames, isDone, { searchDistance = 64, 
   while (!isDone()) {
     throwIfAborted(signal);
     await ctx.rest?.(); // 天黑了先睡觉
+    await tidyInventory(ctx);
     if (bot.inventory.emptySlotCount() === 0) throw new Error('背包满了');
 
     const block = findTarget(ctx, ids, searchDistance);
@@ -92,15 +93,16 @@ function findTarget(ctx, ids, searchDistance) {
   const now = Date.now();
   for (const position of positions) {
     if ((state.unreachable.get(position.toString()) ?? 0) > now) continue;
-    if (nearLava(bot, position)) continue; // 挖开会让岩浆流出来，太危险
+    if (nearLiquid(bot, position)) continue; // 挖开会让岩浆 / 水灌进来（测试时真的淹死过）
     return bot.blockAt(position);
   }
   return null;
 }
 
-function nearLava(bot, position) {
+function nearLiquid(bot, position) {
   for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 1, 0], [0, -1, 0], [0, 0, 1], [0, 0, -1]]) {
-    if (bot.blockAt(position.offset(dx, dy, dz))?.name === 'lava') return true;
+    const name = bot.blockAt(position.offset(dx, dy, dz))?.name;
+    if (name === 'lava' || name === 'water') return true;
   }
   return false;
 }
