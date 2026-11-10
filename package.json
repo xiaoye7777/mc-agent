@@ -1,6 +1,6 @@
 {
   "name": "mc-agent",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "基于 mineflayer 的 Minecraft NPC Agent（MVP：能和玩家聊天）",
   "type": "module",
@@ -23,7 +23,8 @@
   ],
   "dependencies": {
     "dotenv": "^18.0.10",
-    "mineflayer": "^4.39.0"
+    "mineflayer": "^4.39.0",
+    "mineflayer-pathfinder": "^2.4.5"
   },
   "devDependencies": {
     "flying-squid": "^1.12.0"

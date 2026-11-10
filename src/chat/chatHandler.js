@@ -1,13 +1,13 @@
-// 聊天能力：监听游戏里的聊天 → 判断要不要回 → 问大模型 → 把回复发回游戏。
+// 聊天能力：监听游戏里的聊天 → 判断要不要回 → 交给 Agent 循环思考（必要时执行动作）→ 把回复发回游戏。
 //
 // 一条消息的完整流程：
 //   玩家发言 ──> shouldReply()  不回就结束
 //            ──> 排队（同一时间只处理一条，避免刷屏和并发乱序）
-//            ──> 看向玩家 + 拼 prompt（人设 + 环境 + 该玩家的历史 + 新消息）
-//            ──> chatCompletion() 调大模型
+//            ──> 看向玩家 + 拼 prompt（人设 + 环境 + 当前在做什么 + 该玩家的历史 + 新消息）
+//            ──> runAgentLoop()：问大模型，它要动手就执行动作，直到它给出回复
 //            ──> 写入记忆 ──> 切成短句发到公屏 / 私聊
 import { createLogger } from '../logger.js';
-import { chatCompletion } from './llm.js';
+import { runAgentLoop } from './agentLoop.js';
 import { ConversationMemory } from './memory.js';
 import { buildSystemPrompt, describeWorld } from './persona.js';
 
@@ -22,7 +22,7 @@ const SEND_INTERVAL_MS = 600;
  * 创建聊天能力。返回的 attach(bot) 在每次（重新）进服时调用。
  * 记忆放在 attach 外面，所以断线重连后 NPC 还记得之前聊过什么。
  */
-export function createChatHandler({ npc, llm }) {
+export function createChatHandler({ npc, llm, actions }) {
   const memory = new ConversationMemory(npc.memorySize);
   const systemPrompt = buildSystemPrompt(npc.name);
   let queue = Promise.resolve(); // 简单的串行队列
@@ -79,16 +79,19 @@ export function createChatHandler({ npc, llm }) {
       return `${username}，我的大脑还没接上（缺 LLM_API_KEY），暂时只会说这句。`;
     }
 
+    const userMessage = `${username} 说：${message}`;
     const messages = [
-      { role: 'system', content: `${systemPrompt}\n\n${describeWorld(bot)}` },
+      { role: 'system', content: `${systemPrompt}\n\n${describeWorld(bot, actions.describeActivity())}` },
       ...memory.get(username),
-      { role: 'user', content: `${username} 说：${message}` },
+      { role: 'user', content: userMessage },
     ];
 
     try {
-      const reply = await chatCompletion(llm, messages);
-      // 调用成功才写入记忆，失败的那轮不留痕迹
-      memory.add(username, 'user', `${username} 说：${message}`);
+      const reply = await runAgentLoop({ bot, llm, actions, messages });
+      // 调用成功才写入记忆，失败的那轮不留痕迹。
+      // 只记“玩家说了什么、NPC 回了什么”，中间的工具调用不进记忆——
+      // NPC 正在做什么，每次都会通过 describeWorld 的“当前在做”重新告诉它。
+      memory.add(username, 'user', userMessage);
       memory.add(username, 'assistant', reply);
       return reply;
     } catch (err) {

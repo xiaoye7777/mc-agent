@@ -25,5 +25,6 @@ mcServer.createMCServer({
   'player-list-text': { header: { text: 'mc-agent' }, footer: { text: 'test server' } },
   'everybody-op': true,
   'max-entities': 100,
-  version: '1.21.4', // flying-squid 目前最高支持到 1.21.4
+  // flying-squid 最高支持 1.21.4；也可以用 TEST_SERVER_VERSION 换成更老的版本
+  version: process.env.TEST_SERVER_VERSION || '1.21.4',
 });
