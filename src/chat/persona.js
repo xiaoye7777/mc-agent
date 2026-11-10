@@ -1,4 +1,5 @@
 // 人设与上下文：决定 NPC“是谁、知道什么、守什么规矩”。改 NPC 性格主要改这个文件。
+import { recentDeath } from '../behaviors/survival.js';
 
 /** 系统提示词：NPC 的身份、说话风格、做事方法和规矩 */
 export function buildSystemPrompt(npcName) {
@@ -53,6 +54,13 @@ export function describeWorld(bot, activity) {
   const position = bot.entity?.position;
   if (position) {
     facts.push(`你站在坐标 (${position.x.toFixed(0)}, ${position.y.toFixed(0)}, ${position.z.toFixed(0)})`);
+  }
+
+  const death = recentDeath(bot);
+  if (death) {
+    const minutes = Math.max(1, Math.round((Date.now() - death.time) / 60000));
+    const { x, y, z } = death.position;
+    facts.push(`你 ${minutes} 分钟前死过一次（在 (${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)})），背包里的东西掉在那里了，现在已经重生`);
   }
 
   if (typeof bot.health === 'number') {

@@ -10,6 +10,16 @@ import { equipBestWeapon, isFightable } from '../actions/combat.js';
 
 const log = createLogger('survival');
 
+// 最近一次死亡（记 10 分钟），写进 prompt，玩家问“你怎么死了”时 NPC 才知道自己死过
+const DEATH_MEMORY_MS = 10 * 60 * 1000;
+const lastDeaths = new WeakMap();
+
+/** 最近 10 分钟内的死亡信息 { time, position }，没有返回 null */
+export function recentDeath(bot) {
+  const death = lastDeaths.get(bot);
+  return death && Date.now() - death.time < DEATH_MEMORY_MS ? death : null;
+}
+
 const EAT_WHEN_FOOD_BELOW = 15; // 饱食度满值 20
 const DEFEND_RANGE = 3.5;
 const DEFEND_COOLDOWN_MS = 650;
@@ -64,6 +74,7 @@ export function setupSurvival(bot, { tasks, allowCombat }) {
 
   // ---- 死亡 ----
   bot.on('death', () => {
+    lastDeaths.set(bot, { time: Date.now(), position: bot.entity.position.clone() });
     log.warn('NPC 死了，等待重生');
     tasks.cancel('NPC 死了');
   });
