@@ -6,6 +6,7 @@
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { goTo, sleep, throwIfAborted } from '../../actions/helpers.js';
 import { goToNether } from './portal.js';
+import { equipBestWeapon } from '../../actions/combat.js';
 import { attackUntilDead, collectDrops, findNearestEntity } from './world.js';
 
 const { goals } = pathfinderPkg;
@@ -61,6 +62,84 @@ async function spiralStep(ctx) {
 }
 
 /**
+ * 打烈焰人：举盾挡火球，等它飞近了再放下盾砍。
+ * 正面硬打的话几只烈焰人一起喷火球，几秒钟就死了（测试时 4 秒就死了一次）。
+ * 盾牌对着火球的方向举起来能挡住火球；烈焰人喷完一轮会飞近，这时放下盾牌砍它。
+ * @returns {Promise<import('vec3').Vec3>} 烈焰人最后的位置（捡烈焰棒用）
+ */
+async function fightBlaze(ctx, blaze) {
+  const { bot, signal } = ctx;
+  const hasShield = bot.inventory.slots[45]?.name === 'shield';
+  await equipBestWeapon(bot);
+  let shieldUp = false;
+  const raise = () => {
+    if (hasShield && !shieldUp) {
+      bot.activateItem(true); // true = 副手
+      shieldUp = true;
+    }
+  };
+  const lower = () => {
+    if (shieldUp) {
+      bot.deactivateItem();
+      shieldUp = false;
+    }
+  };
+  const startedAt = Date.now();
+  let lastPosition = blaze.position.clone();
+  try {
+    while (Date.now() - startedAt < 60000) {
+      throwIfAborted(signal);
+      if (!blaze.isValid || !bot.entities[blaze.id]) return lastPosition;
+      lastPosition = blaze.position.clone();
+      const eye = blaze.position.offset(0, blaze.height * 0.6, 0);
+      const distance = eye.distanceTo(bot.entity.position.offset(0, 1.6, 0));
+      await bot.lookAt(eye, true);
+      if (distance <= 3.2) {
+        lower();
+        bot.attack(blaze);
+        await sleep(600, signal);
+      } else {
+        // 不追：要塞的桥没有栏杆，追着烈焰人跑会被火球顶下去摔死（测试时真这样死过）。原地举盾等它飞近
+        raise();
+        await sleep(250, signal);
+      }
+      if (bot.health < 8) lower(); // 血少了先放下盾，让本能反应去吃东西
+    }
+    throw new Error('烈焰人打了 60 秒还没打死');
+  } finally {
+    lower();
+  }
+}
+
+/** 刷怪笼附近找一个安全站位：脚下实心，周围 8 格的地面也都是实心（被顶一下不会掉下去） */
+function findSafeStand(bot, around) {
+  const candidates = [];
+  for (let dx = -6; dx <= 6; dx++) {
+    for (let dz = -6; dz <= 6; dz++) {
+      for (let dy = -3; dy <= 2; dy++) {
+        const stand = around.offset(dx, dy, dz);
+        const distance = stand.distanceTo(around);
+        if (distance < 3 || distance > 7) continue;
+        if (bot.blockAt(stand)?.boundingBox !== 'empty' || bot.blockAt(stand.offset(0, 1, 0))?.boundingBox !== 'empty') continue;
+        let solidAround = true;
+        for (let ox = -1; ox <= 1 && solidAround; ox++) {
+          for (let oz = -1; oz <= 1; oz++) {
+            const below = bot.blockAt(stand.offset(ox, -1, oz));
+            if (below?.boundingBox !== 'block' || below.name === 'lava') {
+              solidAround = false;
+              break;
+            }
+          }
+        }
+        if (solidAround) candidates.push(stand);
+      }
+    }
+  }
+  candidates.sort((a, b) => a.distanceTo(bot.entity.position) - b.distanceTo(bot.entity.position));
+  return candidates[0] ?? null;
+}
+
+/**
  * 沿着要塞探索一步：在看得到的下界砖里，挑一块“所在区域还没去过、离现在最远”的走过去。
  * 去过的区域按 32x32 的格子记下来，这样会一直往要塞没探索过的方向推进。
  */
@@ -113,7 +192,7 @@ export async function huntInFortress(ctx, mobs, isDone) {
       idleRounds = 0;
       ctx.log(`打 ${target.name}（${Math.round(target.position.distanceTo(bot.entity.position))} 格外）`);
       try {
-        const where = await attackUntilDead(ctx, target, 40000);
+        const where = target.name === 'blaze' ? await fightBlaze(ctx, target) : await attackUntilDead(ctx, target, 40000);
         await collectDrops(ctx, where, 6);
       } catch (err) {
         if (err.name === 'AbortError') throw err;
@@ -127,10 +206,10 @@ export async function huntInFortress(ctx, mobs, isDone) {
     // 烈焰人只在刷怪笼附近（16 格内有玩家时）刷出来：找到刷怪笼，站在旁边等
     const spawner = bot.findBlock({ matching: bot.registry.blocksByName.spawner.id, maxDistance: 96 });
     if (spawner) {
-      if (spawner.position.distanceTo(bot.entity.position) > 7) {
-        ctx.log(`去烈焰人刷怪笼旁边等：${spawner.position}`);
-        const { x, y, z } = spawner.position;
-        await goTo(bot, new goals.GoalNear(x, y, z, 5), { signal, timeoutMs: 120000 }).catch((err) => {
+      const stand = findSafeStand(bot, spawner.position);
+      if (stand && stand.distanceTo(bot.entity.position) > 1.5) {
+        ctx.log(`去烈焰人刷怪笼旁边的安全位置等：${stand}`);
+        await goTo(bot, new goals.GoalBlock(stand.x, stand.y, stand.z), { signal, timeoutMs: 120000 }).catch((err) => {
           if (err.name === 'AbortError') throw err;
         });
       }
