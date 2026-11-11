@@ -66,6 +66,16 @@ export function setupSurvival(bot, { tasks, allowCombat }) {
     const kind = tasks.current?.kind;
     if (kind && !['follow', 'move', 'autonomy'].includes(kind)) return; // 在干别的活（砍树、打指定的怪），不分心
 
+    // 恶魂火球飞到跟前时打它一下，能把火球打回去（真人玩家也是这么挡的）
+    const fireball = bot.nearestEntity(
+      (entity) => entity.name === 'fireball' && entity.position.distanceTo(bot.entity.position) <= 4,
+    );
+    if (fireball) {
+      lastSwing = Date.now();
+      bot.lookAt(fireball.position, true).then(() => bot.attack(fireball)).catch(() => {});
+      return;
+    }
+
     const enemy = bot.nearestEntity(
       (entity) => isFightable(entity) && entity.position.distanceTo(bot.entity.position) <= DEFEND_RANGE,
     );

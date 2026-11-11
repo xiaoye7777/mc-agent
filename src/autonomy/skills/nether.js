@@ -101,6 +101,11 @@ export async function huntInFortress(ctx, mobs, isDone) {
   let idleRounds = 0;
   while (!isDone()) {
     throwIfAborted(signal);
+    // 死了会重生在主世界：先回下界（主世界的地牢里也有刷怪笼，别认错）
+    if (!inNether(bot)) {
+      state.fortress = null;
+      await goToNether(ctx);
+    }
     if (!state.fortress) await findFortress(ctx);
 
     const target = findNearestEntity(bot, mobs, 48);
