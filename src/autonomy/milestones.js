@@ -64,7 +64,10 @@ export const MILESTONES = [
       { item: 'cobblestone', count: 8 }, // 门框四个角 + 备用
       {
         label: '搭门、点火、走进下界',
-        done: (bot) => String(bot.game.dimension).includes('nether'),
+        // 在下界里，或者附近已经有点着的传送门（死后重生在主世界时，不用再搭一个）
+        done: (bot) =>
+          String(bot.game.dimension).includes('nether') ||
+          Boolean(bot.findBlock({ matching: bot.registry.blocksByName.nether_portal.id, maxDistance: 160 })),
         async run(ctx) {
           const inside = await buildPortal(ctx);
           await enterPortal(ctx, inside);
@@ -74,8 +77,8 @@ export const MILESTONES = [
   },
   {
     name: '下界',
-    todo: true,
-    plan: '找下界要塞，打烈焰人拿 7 根烈焰棒；末影珍珠 12 个（打末影人，或用金锭和猪灵交易）',
+    // 末影之眼 = 烈焰粉 + 末影珍珠，要 12 个左右（填末地门 + 扔出去找要塞时会碎几个）
+    goals: [{ item: 'blaze_rod', count: 7 }, { item: 'ender_pearl', count: 12 }],
   },
   {
     name: '找末地门',
@@ -106,8 +109,8 @@ export function describeGoal(goal) {
   return `${goal.item} x${goal.count ?? 1}`;
 }
 
-/** 穿上背包里的盔甲，盾牌拿在副手 */
-async function wearArmor(ctx) {
+/** 穿上背包里的盔甲，盾牌拿在副手（每个阶段开始前都会调用一次，捡到 / 做出新盔甲就自动穿上） */
+export async function wearArmor(ctx) {
   const { bot } = ctx;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   for (const item of bot.inventory.items()) {

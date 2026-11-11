@@ -52,9 +52,18 @@ export function useMovementProfile(bot, profile) {
     movements.scafoldingBlocks = ['dirt', 'cobblestone', 'cobbled_deepslate', 'netherrack']
       .map((name) => bot.registry.itemsByName[name]?.id)
       .filter(Boolean);
+    // 尽量别贴着岩浆走：被怪一顶就掉进去了（下界里测试时被疣猪兽顶进岩浆死过）
+    movements.exclusionAreasStep = [(block) => (isNextToLava(bot, block.position) ? 50 : 0)];
   }
   bot.pathfinder.setMovements(movements);
   bot.pathfinder.thinkTimeout = profile === 'safe' ? 5000 : 10000; // 挖路的路线复杂，多给点时间算
+}
+
+function isNextToLava(bot, position) {
+  for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0], [1, -1, 0], [-1, -1, 0], [0, -1, 1], [0, -1, -1]]) {
+    if (bot.blockAt(position.offset(dx, dy, dz))?.name === 'lava') return true;
+  }
+  return false;
 }
 
 /** 立刻停下所有移动和挖掘（setGoal(null) 立即生效；pathfinder.stop() 要等下一帧，会误杀新目标） */

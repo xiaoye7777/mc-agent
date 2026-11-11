@@ -24,9 +24,13 @@ const WEAPONS = [
   'netherite_axe', 'diamond_axe', 'iron_axe', 'stone_axe', 'golden_axe', 'wooden_axe',
 ];
 
+// minecraft-data 把它们算成“动物”，但其实见人就打（疣猪兽会把人顶进岩浆，测试时真这样死过）
+const ALSO_HOSTILE = new Set(['hoglin', 'zoglin', 'magma_cube', 'slime', 'ghast', 'phantom']);
+
 /** 这个实体能不能打：只有敌对怪物，排除中立和 boss */
 export function isFightable(entity) {
-  return entity?.type === 'hostile' && !DO_NOT_ATTACK.has(entity.name);
+  if (!entity) return false;
+  return (entity.type === 'hostile' || ALSO_HOSTILE.has(entity.name)) && !DO_NOT_ATTACK.has(entity.name);
 }
 
 /** 拿上背包里最好的武器（没有就空手） */

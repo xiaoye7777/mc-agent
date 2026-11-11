@@ -8,7 +8,7 @@
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { goTo, useMovementProfile } from '../actions/helpers.js';
 import { createLogger } from '../logger.js';
-import { describeGoal, isGoalDone, isMilestoneDone, MILESTONES } from './milestones.js';
+import { describeGoal, isGoalDone, isMilestoneDone, MILESTONES, wearArmor } from './milestones.js';
 import { obtain } from './planner.js';
 import { ensureFood } from './skills/food.js';
 import { restIfNight } from './skills/sleep.js';
@@ -59,6 +59,7 @@ async function run(bot, { signal, setProgress }) {
 
       state.stage = milestone.name;
       announce(`开始【${milestone.name}】`);
+      await wearArmor(makeContext(bot, signal, setProgress, state)).catch(() => {});
       try {
         for (const goal of milestone.goals) {
           if (isGoalDone(bot, goal)) continue;
@@ -84,9 +85,11 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
     // 每次尝试一个独立的“死亡中断”信号：死了只中断这一步，不结束整个发育任务
     const step = new AbortController();
     let deathPosition = null;
+    let deathDimension = null;
     let drowning = false;
     const onDeath = () => {
       deathPosition = bot.entity.position.clone();
+      deathDimension = String(bot.game.dimension);
       step.abort('死了');
     };
     const onBreath = (oxygen) => {
@@ -115,7 +118,7 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
       }
       if (deathPosition) {
         log.warn(`死在 ${deathPosition}，重生后回去捡东西`);
-        await recoverAfterDeath(makeContext(bot, signal, setProgress, state), deathPosition);
+        await recoverAfterDeath(makeContext(bot, signal, setProgress, state), deathPosition, deathDimension);
         attempt -= 1; // 死亡不算失败次数
         continue;
       }
@@ -164,12 +167,16 @@ async function surfaceForAir(ctx) {
 }
 
 /** 等重生，然后回死亡地点捡东西（太远就算了；掉落物 5 分钟后会消失） */
-async function recoverAfterDeath(ctx, deathPosition) {
+async function recoverAfterDeath(ctx, deathPosition, deathDimension) {
   const { bot, signal } = ctx;
   await new Promise((resolve) => {
     if (bot.health > 0) return setTimeout(resolve, 1500);
     bot.once('spawn', () => setTimeout(resolve, 1500));
   });
+  if (deathDimension && String(bot.game.dimension) !== deathDimension) {
+    ctx.log('死在另一个维度（比如下界），重生回主世界了，东西捡不回来');
+    return;
+  }
   if (deathPosition.distanceTo(bot.entity.position) > 300) {
     ctx.log('死得太远了，不回去捡了');
     return;

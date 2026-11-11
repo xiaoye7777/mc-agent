@@ -97,6 +97,23 @@ export async function buildPortal(ctx) {
   return inside;
 }
 
+/** 回到下界：附近有点着的传送门就走进去（死后重生在主世界时用），没有就报错 */
+export async function goToNether(ctx) {
+  const { bot } = ctx;
+  if (String(bot.game.dimension).includes('nether')) return;
+  const portalId = bot.registry.blocksByName.nether_portal.id;
+  // 优先用记住的传送门位置（自己搭的那个），远的话先走过去
+  const remembered = ctx.state.overworldPortal;
+  if (remembered && remembered.distanceTo(bot.entity.position) > 64) {
+    ctx.log(`回下界：先走回传送门 ${remembered}（${Math.round(remembered.distanceTo(bot.entity.position))} 格）`);
+    await goTo(bot, new goals.GoalNear(remembered.x, remembered.y, remembered.z, 3), { signal: ctx.signal, timeoutMs: 600000 });
+  }
+  const portal = bot.findBlock({ matching: portalId, maxDistance: 160 });
+  if (!portal) throw new Error('附近没有下界传送门，回不去下界');
+  ctx.log(`回下界：走进传送门 ${portal.position}`);
+  await enterPortal(ctx, portal.position);
+}
+
 /** 走进传送门，等到了下界再返回 */
 export async function enterPortal(ctx, inside) {
   const { bot, signal } = ctx;
@@ -112,6 +129,7 @@ export async function enterPortal(ctx, inside) {
     };
     bot.on('spawn', check);
   });
+  if (!dimension().includes('nether')) ctx.state.overworldPortal = inside.clone(); // 记住主世界这边的门，死了好回来
   bot.pathfinder.setGoal(new goals.GoalBlock(inside.x, inside.y, inside.z));
   await Promise.race([arrived, sleep(20000, signal).then(() => { throw new Error('站进传送门 20 秒还没传送'); })]);
   bot.pathfinder.setGoal(null);
