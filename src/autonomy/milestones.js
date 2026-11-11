@@ -4,10 +4,12 @@
 //   { item: 'iron_pickaxe' }          背包里要有（count 默认 1；有更好档次的也算）
 //   { item: 'cobblestone', count: 16 }
 //   { food: 30 }                      背包里的食物要能顶 30 点饱食度
+//   { label, done(bot), run(ctx) }    自定义动作（比如搭传送门）：done 判断做没做完，run 去做
 //   todo: true                        这一阶段还没实现，跑到这里就停下汇报
 //   optional: true                    做不成就跳过，不影响后面的阶段
 import { foodPoints } from './skills/food.js';
 import { hasAtLeast } from './planner.js';
+import { buildPortal, enterPortal } from './skills/portal.js';
 
 export const MILESTONES = [
   {
@@ -56,13 +58,27 @@ export const MILESTONES = [
   // ---- 下面的阶段还没实现：路线和难点先写清楚，方便以后接着做 ----
   {
     name: '下界传送门',
-    todo: true,
-    plan: '用水桶把岩浆池浇成黑曜石，钻石镐挖 10 块；砂砾挖出燧石做打火石；搭 4x5 门框点燃',
+    goals: [
+      { item: 'flint_and_steel' },
+      { item: 'obsidian', count: 10 },
+      { item: 'cobblestone', count: 8 }, // 门框四个角 + 备用
+      {
+        label: '搭门、点火、走进下界',
+        // 在下界里，或者附近已经有点着的传送门（死后重生在主世界时，不用再搭一个）
+        done: (bot) =>
+          String(bot.game.dimension).includes('nether') ||
+          Boolean(bot.findBlock({ matching: bot.registry.blocksByName.nether_portal.id, maxDistance: 160 })),
+        async run(ctx) {
+          const inside = await buildPortal(ctx);
+          await enterPortal(ctx, inside);
+        },
+      },
+    ],
   },
   {
     name: '下界',
-    todo: true,
-    plan: '找下界要塞，打烈焰人拿 7 根烈焰棒；末影珍珠 12 个（打末影人，或用金锭和猪灵交易）',
+    // 末影之眼 = 烈焰粉 + 末影珍珠，要 12 个左右（填末地门 + 扔出去找要塞时会碎几个）
+    goals: [{ item: 'blaze_rod', count: 7 }, { item: 'ender_pearl', count: 12 }],
   },
   {
     name: '找末地门',
@@ -82,17 +98,19 @@ export function isMilestoneDone(bot, milestone) {
 }
 
 export function isGoalDone(bot, goal) {
+  if (goal.run) return goal.done(bot);
   if (goal.food !== undefined) return foodPoints(bot) >= goal.food;
   return hasAtLeast(bot, goal.item, goal.count ?? 1);
 }
 
 export function describeGoal(goal) {
+  if (goal.run) return goal.label;
   if (goal.food !== undefined) return `囤够 ${goal.food} 点饱食度的食物`;
   return `${goal.item} x${goal.count ?? 1}`;
 }
 
-/** 穿上背包里的盔甲，盾牌拿在副手 */
-async function wearArmor(ctx) {
+/** 穿上背包里的盔甲，盾牌拿在副手（每个阶段开始前都会调用一次，捡到 / 做出新盔甲就自动穿上） */
+export async function wearArmor(ctx) {
   const { bot } = ctx;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   for (const item of bot.inventory.items()) {

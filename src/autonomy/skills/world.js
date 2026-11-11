@@ -109,6 +109,7 @@ export async function explore(ctx, distance = 48) {
   const { bot, signal, state } = ctx;
   state.heading ??= Math.random() * Math.PI * 2;
   for (let attempt = 0; attempt < 4; attempt++) {
+    if (attempt === 0) await escapeWater(ctx); // 在水里的话先上岸，不然哪个方向都算不出路
     const from = bot.entity.position;
     const x = Math.round(from.x + Math.cos(state.heading) * distance);
     const z = Math.round(from.z + Math.sin(state.heading) * distance);
@@ -122,6 +123,56 @@ export async function explore(ctx, distance = 48) {
     }
   }
   throw new Error('四个方向都走不通，被困住了');
+}
+
+/** 是不是泡在水里（脚或头在水里） */
+export function isInWater(bot) {
+  const feet = bot.entity.position.floored();
+  return bot.blockAt(feet)?.name === 'water' || bot.blockAt(feet.offset(0, 1, 0))?.name === 'water';
+}
+
+/**
+ * 从水里出来：先往上游到水面，再游到最近的岸上。
+ * 寻路在深水里经常算不出路（一上线就泡在水里时，每个方向都“走不通”），所以先手动游上来。
+ * @returns {Promise<boolean>} 刚才是不是在水里
+ */
+export async function escapeWater(ctx) {
+  const { bot, signal } = ctx;
+  if (!isInWater(bot)) return false;
+  ctx.log('泡在水里，先游上岸');
+  bot.pathfinder.setGoal(null);
+  bot.setControlState('jump', true);
+  try {
+    const head = () => bot.blockAt(bot.entity.position.floored().offset(0, 1, 0));
+    for (let i = 0; i < 40 && head()?.name === 'water'; i++) await sleep(250, signal);
+    const land = findNearestLand(bot, 24);
+    if (land) {
+      await goTo(bot, new goals.GoalBlock(land.x, land.y, land.z), { signal, timeoutMs: 40000 }).catch((err) => {
+        if (err.name === 'AbortError') throw err;
+      });
+    }
+  } finally {
+    bot.clearControlStates();
+  }
+  return true;
+}
+
+/** 最近的“岸”：脚下实心、身体两格都是空气（不是水） */
+function findNearestLand(bot, radius) {
+  const feet = bot.entity.position.floored();
+  let best = null;
+  for (let dx = -radius; dx <= radius; dx++) {
+    for (let dz = -radius; dz <= radius; dz++) {
+      for (let dy = -4; dy <= 6; dy++) {
+        const position = feet.offset(dx, dy, dz);
+        const below = bot.blockAt(position.offset(0, -1, 0));
+        if (below?.boundingBox !== 'block') continue;
+        if (bot.blockAt(position)?.name !== 'air' || bot.blockAt(position.offset(0, 1, 0))?.name !== 'air') continue;
+        if (!best || position.distanceTo(feet) < best.distanceTo(feet)) best = position;
+      }
+    }
+  }
+  return best;
 }
 
 /** 找最近的、名字在列表里的生物 */

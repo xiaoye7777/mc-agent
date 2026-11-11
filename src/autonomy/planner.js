@@ -15,6 +15,8 @@ import { countItem, throwIfAborted } from '../actions/helpers.js';
 import { MINING, MOB_DROPS, PICKAXE_TIERS, SMELTING } from './knowledge.js';
 import { craftItem } from './skills/craft.js';
 import { mineUntil } from './skills/mine.js';
+import { huntInFortress } from './skills/nether.js';
+import { fillWaterBucket, getFlint, makeObsidian } from './skills/obsidian.js';
 import { smelt } from './skills/smelt.js';
 import { attackUntilDead, collectDrops, explore, findNearestEntity } from './skills/world.js';
 
@@ -38,6 +40,12 @@ export async function obtain(ctx, item, count) {
     const isDone = () => countItem(bot, item) >= target;
 
     if (item.endsWith('_log')) return await mineUntil(ctx, [item], isDone);
+
+    // 几样要专门技能才能弄到的东西
+    if (item === 'flint') return await getFlint(ctx, count);
+    if (item === 'obsidian') return await makeObsidian(ctx, count);
+    if (item === 'water_bucket') return await fillWaterBucket(ctx);
+    if (item === 'blaze_rod') return await huntInFortress(ctx, ['blaze'], isDone); // 烈焰人只在下界要塞里刷
 
     const mining = MINING[item];
     if (mining) {

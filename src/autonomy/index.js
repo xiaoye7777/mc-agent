@@ -8,11 +8,11 @@
 import pathfinderPkg from 'mineflayer-pathfinder';
 import { goTo, useMovementProfile } from '../actions/helpers.js';
 import { createLogger } from '../logger.js';
-import { describeGoal, isGoalDone, isMilestoneDone, MILESTONES } from './milestones.js';
+import { describeGoal, isGoalDone, isMilestoneDone, MILESTONES, wearArmor } from './milestones.js';
 import { obtain } from './planner.js';
 import { ensureFood } from './skills/food.js';
 import { restIfNight } from './skills/sleep.js';
-import { collectDrops, explore } from './skills/world.js';
+import { collectDrops, escapeWater, explore } from './skills/world.js';
 
 const { goals } = pathfinderPkg;
 const log = createLogger('autonomy');
@@ -43,8 +43,13 @@ async function run(bot, { signal, setProgress }) {
     }
   };
 
+  await escapeWater(makeContext(bot, signal, setProgress, state)).catch(() => {}); // 上线时可能泡在水里
+
+  // 开发用：SURVIVE_FROM=下界传送门 直接从某个阶段开始（配合 /give 给装备，单独练这一段）
+  const startIndex = Math.max(0, MILESTONES.findIndex((m) => m.name === process.env.SURVIVE_FROM));
+
   try {
-    for (const milestone of MILESTONES) {
+    for (const milestone of MILESTONES.slice(startIndex)) {
       if (milestone.todo) {
         const message = `能做的阶段都做完了。下一阶段「${milestone.name}」还没学会（计划：${milestone.plan}）`;
         announce(message);
@@ -54,6 +59,7 @@ async function run(bot, { signal, setProgress }) {
 
       state.stage = milestone.name;
       announce(`开始【${milestone.name}】`);
+      await wearArmor(makeContext(bot, signal, setProgress, state)).catch(() => {});
       try {
         for (const goal of milestone.goals) {
           if (isGoalDone(bot, goal)) continue;
@@ -79,9 +85,11 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
     // 每次尝试一个独立的“死亡中断”信号：死了只中断这一步，不结束整个发育任务
     const step = new AbortController();
     let deathPosition = null;
+    let deathDimension = null;
     let drowning = false;
     const onDeath = () => {
       deathPosition = bot.entity.position.clone();
+      deathDimension = String(bot.game.dimension);
       step.abort('死了');
     };
     const onBreath = (oxygen) => {
@@ -96,7 +104,8 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
     const stepSignal = AbortSignal.any([signal, step.signal]);
     const ctx = makeContext(bot, stepSignal, setProgress, state);
     try {
-      if (goal.food !== undefined) await ensureFood(ctx, goal.food);
+      if (goal.run) await goal.run(ctx);
+      else if (goal.food !== undefined) await ensureFood(ctx, goal.food);
       else await obtain(ctx, goal.item, goal.count ?? 1);
       return;
     } catch (err) {
@@ -109,7 +118,7 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
       }
       if (deathPosition) {
         log.warn(`死在 ${deathPosition}，重生后回去捡东西`);
-        await recoverAfterDeath(makeContext(bot, signal, setProgress, state), deathPosition);
+        await recoverAfterDeath(makeContext(bot, signal, setProgress, state), deathPosition, deathDimension);
         attempt -= 1; // 死亡不算失败次数
         continue;
       }
@@ -158,12 +167,16 @@ async function surfaceForAir(ctx) {
 }
 
 /** 等重生，然后回死亡地点捡东西（太远就算了；掉落物 5 分钟后会消失） */
-async function recoverAfterDeath(ctx, deathPosition) {
+async function recoverAfterDeath(ctx, deathPosition, deathDimension) {
   const { bot, signal } = ctx;
   await new Promise((resolve) => {
     if (bot.health > 0) return setTimeout(resolve, 1500);
     bot.once('spawn', () => setTimeout(resolve, 1500));
   });
+  if (deathDimension && String(bot.game.dimension) !== deathDimension) {
+    ctx.log('死在另一个维度（比如下界），重生回主世界了，东西捡不回来');
+    return;
+  }
   if (deathPosition.distanceTo(bot.entity.position) > 300) {
     ctx.log('死得太远了，不回去捡了');
     return;

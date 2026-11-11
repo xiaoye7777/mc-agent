@@ -4,7 +4,7 @@
 // 所以 bot.findBlocks 能直接搜到 64 格内的铁矿、钻石——相当于“透视”。真人玩家得靠挖矿道碰运气，
 // 机器人可以直接挖一条路过去。
 import pathfinderPkg from 'mineflayer-pathfinder';
-import { goTo, throwIfAborted } from '../../actions/helpers.js';
+import { digWithTimeout, goTo, throwIfAborted } from '../../actions/helpers.js';
 import { collectDrops, explore, tidyInventory } from './world.js';
 
 const { goals } = pathfinderPkg;
@@ -79,7 +79,7 @@ export async function digBlock(ctx, block) {
   const onAbort = () => bot.stopDigging();
   signal.addEventListener('abort', onAbort, { once: true });
   try {
-    await bot.dig(current, true);
+    await digWithTimeout(bot, current, bot.digTime(current) + 15000);
   } finally {
     signal.removeEventListener('abort', onAbort);
   }
