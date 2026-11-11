@@ -4,9 +4,10 @@
 // 区块数据里能直接看到 96 格内的下界砖；看不到就按“螺旋”往外探索：
 // 走 64 格转 90 度，每转两次腿长加 64，这样能把周围一圈圈地扫一遍，不会一直往一个方向走到天边。
 import pathfinderPkg from 'mineflayer-pathfinder';
-import { goTo, sleep, throwIfAborted } from '../../actions/helpers.js';
+import { countItem, goTo, sleep, throwIfAborted } from '../../actions/helpers.js';
 import { goToNether } from './portal.js';
 import { equipBestWeapon } from '../../actions/combat.js';
+import { canShoot, hasClearShot, shootAt } from './archery.js';
 import { attackUntilDead, collectDrops, findNearestEntity } from './world.js';
 
 const { goals } = pathfinderPkg;
@@ -62,7 +63,7 @@ async function spiralStep(ctx) {
 }
 
 /**
- * 打烈焰人：举盾挡火球，等它飞近了再放下盾砍。
+ * 打烈焰人：有弓箭就射（它停在 12~14 格外不过来）；没有就举盾挡火球，等它飞近了再放下盾砍。
  * 正面硬打的话几只烈焰人一起喷火球，几秒钟就死了（测试时 4 秒就死了一次）。
  * 盾牌对着火球的方向举起来能挡住火球；烈焰人喷完一轮会飞近，这时放下盾牌砍它。
  * @returns {Promise<import('vec3').Vec3>} 烈焰人最后的位置（捡烈焰棒用）
@@ -85,6 +86,8 @@ async function fightBlaze(ctx, blaze) {
     }
   };
   const startedAt = Date.now();
+  let shots = 0;
+  let lastReposition = 0;
   let lastPosition = blaze.position.clone();
   try {
     while (Date.now() - startedAt < 60000) {
@@ -96,19 +99,92 @@ async function fightBlaze(ctx, blaze) {
       await bot.lookAt(eye, true);
       if (distance <= 3.2) {
         lower();
+        await equipBestWeapon(bot);
         bot.attack(blaze);
         await sleep(600, signal);
+      } else if (canShoot(bot) && distance <= MAX_SHOT && hasClearShot(bot, blaze)) {
+        // 有弓有箭、视线没被挡：放下盾射它（空地上测试 4 箭一只，箭箭命中）
+        lower();
+        if (await shootAt(ctx, blaze)) {
+          shots += 1;
+          ctx.log(`射烈焰人第 ${shots} 箭（${Math.round(distance)} 格，它还剩 ${Math.round(blaze.health ?? blaze.metadata?.[9] ?? 0)} 血，箭剩 ${countItem(bot, 'arrow')}）`);
+        }
+        await sleep(200, signal);
+      } else if (canShoot(bot) && distance <= MAX_SHOT && Date.now() - lastReposition > 4000) {
+        // 视线被墙 / 栅栏挡住了：在附近找个能看见它、脚下又安全的位置挪过去
+        lastReposition = Date.now();
+        const spot = findShootingSpot(bot, blaze);
+        if (spot) {
+          lower();
+          await goTo(bot, new goals.GoalBlock(spot.x, spot.y, spot.z), { signal, timeoutMs: 10000 }).catch((err) => {
+            if (err.name === 'AbortError') throw err;
+          });
+        } else {
+          raise();
+          await sleep(250, signal);
+        }
       } else {
         // 不追：要塞的桥没有栏杆，追着烈焰人跑会被火球顶下去摔死（测试时真这样死过）。原地举盾等它飞近
         raise();
         await sleep(250, signal);
       }
-      if (bot.health < 8) lower(); // 血少了先放下盾，让本能反应去吃东西
+      if (bot.health < 10) {
+        // 血少了：放下盾，自己吃东西（本能反应在举盾 / 拉弓时不会吃，会冲突）
+        lower();
+        await eatNow(bot);
+      }
     }
     throw new Error('烈焰人打了 60 秒还没打死');
   } finally {
     lower();
   }
+}
+
+const MAX_SHOT = 24; // 再远的话烈焰人飘来飘去，命中率太低，白费箭
+
+/** 马上吃一个最好的食物（打架时手动调用） */
+async function eatNow(bot) {
+  const foods = bot.registry.foodsByName;
+  const food = bot.inventory
+    .items()
+    .filter((item) => foods[item.name] && !['rotten_flesh', 'spider_eye', 'poisonous_potato', 'pufferfish'].includes(item.name))
+    .sort((a, b) => foods[b.name].foodPoints - foods[a.name].foodPoints)[0];
+  if (!food || bot.food >= 20) return;
+  try {
+    await bot.equip(food, 'hand');
+    await bot.consume();
+  } catch {
+    // 吃不了就算了
+  }
+}
+
+/** 附近 6 格内找一个能看见烈焰人、脚下安全（周围 3x3 都是实心地面）的站位，挑最近的 */
+function findShootingSpot(bot, target) {
+  const feet = bot.entity.position.floored();
+  let best = null;
+  for (let dx = -6; dx <= 6; dx++) {
+    for (let dz = -6; dz <= 6; dz++) {
+      for (let dy = -2; dy <= 2; dy++) {
+        const stand = feet.offset(dx, dy, dz);
+        if (!isSafeStand(bot, stand)) continue;
+        if (!hasClearShot(bot, target, stand.offset(0.5, 1.62, 0.5))) continue;
+        if (!best || stand.distanceTo(feet) < best.distanceTo(feet)) best = stand;
+      }
+    }
+  }
+  return best;
+}
+
+/** 站位安全：身体两格是空的，脚下和周围 8 格的地面都是实心的（被顶一下不会掉下去），不挨着岩浆 */
+function isSafeStand(bot, stand) {
+  if (bot.blockAt(stand)?.boundingBox !== 'empty' || bot.blockAt(stand.offset(0, 1, 0))?.boundingBox !== 'empty') return false;
+  for (let ox = -1; ox <= 1; ox++) {
+    for (let oz = -1; oz <= 1; oz++) {
+      const below = bot.blockAt(stand.offset(ox, -1, oz));
+      if (below?.boundingBox !== 'block' || below.name === 'lava') return false;
+    }
+  }
+  return true;
 }
 
 /** 刷怪笼附近找一个安全站位：脚下实心，周围 8 格的地面也都是实心（被顶一下不会掉下去） */

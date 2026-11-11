@@ -49,7 +49,7 @@ export const MOB_DROPS = {
   rabbit: ['rabbit'],
   leather: ['cow'],
   feather: ['chicken'],
-  string: ['spider'],
+  string: ['spider', 'cave_spider'],
   bone: ['skeleton'],
   gunpowder: ['creeper'],
   ender_pearl: ['enderman'],

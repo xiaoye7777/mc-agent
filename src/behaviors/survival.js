@@ -42,6 +42,7 @@ export function setupSurvival(bot, { tasks, allowCombat }) {
     const hungry = bot.food < EAT_WHEN_FOOD_BELOW;
     const hurtAndNotFull = bot.health < HURT_HEALTH && bot.food < 20;
     if (eating || !(hungry || hurtAndNotFull)) return;
+    if (bot.usingHeldItem) return; // 正在举盾 / 拉弓：这时候吃会冲突（吃也是“使用物品”），让正在打架的逻辑自己处理
     if (bot.targetDigBlock) return; // 正在挖方块，换手会打断，等下一次再吃
     const food = pickFood(bot);
     if (!food) return;
