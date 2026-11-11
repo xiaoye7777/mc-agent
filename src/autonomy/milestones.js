@@ -4,10 +4,12 @@
 //   { item: 'iron_pickaxe' }          背包里要有（count 默认 1；有更好档次的也算）
 //   { item: 'cobblestone', count: 16 }
 //   { food: 30 }                      背包里的食物要能顶 30 点饱食度
+//   { label, done(bot), run(ctx) }    自定义动作（比如搭传送门）：done 判断做没做完，run 去做
 //   todo: true                        这一阶段还没实现，跑到这里就停下汇报
 //   optional: true                    做不成就跳过，不影响后面的阶段
 import { foodPoints } from './skills/food.js';
 import { hasAtLeast } from './planner.js';
+import { buildPortal, enterPortal } from './skills/portal.js';
 
 export const MILESTONES = [
   {
@@ -56,8 +58,19 @@ export const MILESTONES = [
   // ---- 下面的阶段还没实现：路线和难点先写清楚，方便以后接着做 ----
   {
     name: '下界传送门',
-    todo: true,
-    plan: '用水桶把岩浆池浇成黑曜石，钻石镐挖 10 块；砂砾挖出燧石做打火石；搭 4x5 门框点燃',
+    goals: [
+      { item: 'flint_and_steel' },
+      { item: 'obsidian', count: 10 },
+      { item: 'cobblestone', count: 8 }, // 门框四个角 + 备用
+      {
+        label: '搭门、点火、走进下界',
+        done: (bot) => String(bot.game.dimension).includes('nether'),
+        async run(ctx) {
+          const inside = await buildPortal(ctx);
+          await enterPortal(ctx, inside);
+        },
+      },
+    ],
   },
   {
     name: '下界',
@@ -82,11 +95,13 @@ export function isMilestoneDone(bot, milestone) {
 }
 
 export function isGoalDone(bot, goal) {
+  if (goal.run) return goal.done(bot);
   if (goal.food !== undefined) return foodPoints(bot) >= goal.food;
   return hasAtLeast(bot, goal.item, goal.count ?? 1);
 }
 
 export function describeGoal(goal) {
+  if (goal.run) return goal.label;
   if (goal.food !== undefined) return `囤够 ${goal.food} 点饱食度的食物`;
   return `${goal.item} x${goal.count ?? 1}`;
 }

@@ -12,7 +12,7 @@ import { describeGoal, isGoalDone, isMilestoneDone, MILESTONES } from './milesto
 import { obtain } from './planner.js';
 import { ensureFood } from './skills/food.js';
 import { restIfNight } from './skills/sleep.js';
-import { collectDrops, explore } from './skills/world.js';
+import { collectDrops, escapeWater, explore } from './skills/world.js';
 
 const { goals } = pathfinderPkg;
 const log = createLogger('autonomy');
@@ -43,8 +43,13 @@ async function run(bot, { signal, setProgress }) {
     }
   };
 
+  await escapeWater(makeContext(bot, signal, setProgress, state)).catch(() => {}); // 上线时可能泡在水里
+
+  // 开发用：SURVIVE_FROM=下界传送门 直接从某个阶段开始（配合 /give 给装备，单独练这一段）
+  const startIndex = Math.max(0, MILESTONES.findIndex((m) => m.name === process.env.SURVIVE_FROM));
+
   try {
-    for (const milestone of MILESTONES) {
+    for (const milestone of MILESTONES.slice(startIndex)) {
       if (milestone.todo) {
         const message = `能做的阶段都做完了。下一阶段「${milestone.name}」还没学会（计划：${milestone.plan}）`;
         announce(message);
@@ -96,7 +101,8 @@ async function achieve(bot, goal, { signal, setProgress, state }) {
     const stepSignal = AbortSignal.any([signal, step.signal]);
     const ctx = makeContext(bot, stepSignal, setProgress, state);
     try {
-      if (goal.food !== undefined) await ensureFood(ctx, goal.food);
+      if (goal.run) await goal.run(ctx);
+      else if (goal.food !== undefined) await ensureFood(ctx, goal.food);
       else await obtain(ctx, goal.item, goal.count ?? 1);
       return;
     } catch (err) {

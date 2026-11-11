@@ -9,7 +9,26 @@ const { pathfinder, Movements } = pathfinderPkg;
 /** 装寻路插件。默认是“安全”走法：绝不挖方块、不搭方块，免得破坏别人的建筑 */
 export function setupPathfinder(bot) {
   bot.loadPlugin(pathfinder);
+  fixDigTime(bot);
   useMovementProfile(bot, 'safe');
+}
+
+/**
+ * 修 minecraft-data 1.21.6 的一个数据 bug：矿石、黑曜石这类方块的“材质”被写成了
+ * incorrect_for_wooden_tool / incorrect_for_stone_tool 之类（其实是“哪些工具挖不了”的标签），
+ * 结果镐子的加速完全不算：钻石镐挖黑曜石算出 75 秒（实际 9.4 秒），石镐挖铁矿 4.6 秒（实际 1.15 秒）。
+ * bot.dig 会按这个时间傻等，所以挖矿慢了好几倍。这里把这类方块按“镐子能挖”的材质重新算。
+ */
+function fixDigTime(bot) {
+  const original = bot.digTime;
+  bot.digTime = (block) => {
+    if (typeof block?.material === 'string' && block.material.startsWith('incorrect_for_')) {
+      const patched = Object.create(block);
+      patched.material = 'mineable/pickaxe';
+      return original(patched);
+    }
+    return original(block);
+  };
 }
 
 /**
@@ -106,6 +125,29 @@ const PATH_ERRORS = {
   GoalChanged: '走到一半被别的事打断了',
   PathStopped: '走到一半被叫停了',
 };
+
+// ---------- 挖方块 ----------
+
+/**
+ * 挖一个方块，带超时。mineflayer 的 bot.dig 没有超时：服务器不确认的话会一直等下去
+ * （测试时挖黑曜石卡了 10 分钟）。超时就停止挖掘并报错。
+ */
+export async function digWithTimeout(bot, block, timeoutMs = 25000) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => {
+      bot.stopDigging();
+      reject(new Error(`挖 ${block.name} 超过 ${Math.round(timeoutMs / 1000)} 秒没挖下来`));
+    }, timeoutMs);
+  });
+  const digging = bot.dig(block, true);
+  digging.catch(() => {});
+  try {
+    await Promise.race([digging, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 // ---------- 合成 ----------
 

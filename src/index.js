@@ -30,7 +30,7 @@ const botHandle = startBot(config.minecraft, (bot) => {
   chat.attach(bot);
   if (config.npc.autonomy === 'auto') {
     // 等区块加载一会儿再开始，不然一进服什么都“看不见”
-    setTimeout(() => log.info(startAutonomy({ bot, tasks: actions.tasks })), 3000);
+    setTimeout(() => log.info(startAutonomy({ bot, tasks: actions.tasks })), Number(process.env.SURVIVE_DELAY_MS ?? 3000));
   }
 });
 
