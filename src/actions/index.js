@@ -9,6 +9,7 @@
 // 新增动作：在 src/actions/ 下写好动作数组，加进下面的 ACTION_GROUPS 即可，
 // 聊天和 Agent 循环那边一行都不用改。
 import { setupSurvival } from '../behaviors/survival.js';
+import { autonomyActions } from './autonomy.js';
 import { combatActions } from './combat.js';
 import { gatheringActions } from './gathering.js';
 import { haltBot, setupPathfinder } from './helpers.js';
@@ -23,7 +24,7 @@ import { createTaskManager } from './taskManager.js';
  * @property {ReturnType<typeof createTaskManager>} tasks 后台任务管理
  * @property {string} player   是哪个玩家让做的
  * @property {boolean} isWhisper 是不是私聊里说的
- * @property {{ allowDig: boolean, allowCombat: boolean }} options
+ * @property {{ allowDig: boolean, allowCombat: boolean, allowAutonomy: boolean }} options
  *
  * @typedef {object} Action
  * @property {string} name
@@ -39,10 +40,11 @@ const ACTION_GROUPS = [
   { actions: itemActions },
   { actions: gatheringActions, enabled: (options) => options.allowDig },
   { actions: combatActions, enabled: (options) => options.allowCombat },
+  { actions: autonomyActions, enabled: (options) => options.allowAutonomy },
 ];
 
 /**
- * @param {{ allowDig: boolean, allowCombat: boolean }} options
+ * @param {{ allowDig: boolean, allowCombat: boolean, allowAutonomy: boolean }} options
  */
 export function createActionRegistry(options) {
   const actions = ACTION_GROUPS.filter((group) => group.enabled?.(options) ?? true).flatMap((group) => group.actions);

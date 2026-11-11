@@ -1,6 +1,6 @@
 // 物品类动作：把东西交给玩家、拿到手上、合成。
 import pathfinderPkg from 'mineflayer-pathfinder';
-import { countItem, findInventoryItem, findPlayerEntity, formatPosition, goTo, sleep } from './helpers.js';
+import { countItem, craftVerified, findInventoryItem, findPlayerEntity, formatPosition, goTo, sleep } from './helpers.js';
 
 const { goals } = pathfinderPkg;
 
@@ -119,8 +119,7 @@ export const itemActions = [
         if (!recipe) continue;
 
         const times = Math.ceil(wanted / recipe.result.count);
-        await bot.craft(recipe, times, table ?? undefined);
-        await sleep(250); // 等背包同步，不然下面数出来的数量可能还是旧的
+        await craftVerified(bot, name, () => bot.recipesFor(itemId, null, wanted, table)[0], times, table);
         return `合成好了 ${name} x${times * recipe.result.count}（背包里现在有 ${countItem(bot, name)} 个）`;
       }
 
