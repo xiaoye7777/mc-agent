@@ -57,6 +57,13 @@ export const MILESTONES = [
   },
   // ---- 下面的阶段还没实现：路线和难点先写清楚，方便以后接着做 ----
   {
+    name: '弓箭',
+    // 烈焰人停在 12~14 格外不过来，近战打不到；最后打末影龙射末影水晶也要用弓
+    // 弓 = 3 线（打蜘蛛）+ 3 木棍；箭 = 燧石 + 木棍 + 羽毛（打鸡），一次做 4 支
+    goals: [{ item: 'bow' }, { item: 'arrow', count: 48 }, { item: 'golden_boots' }],
+    // 金靴子：下界里的猪灵看到没穿金装备的玩家会直接动手（测试时被猪灵打死过），穿一件金的就不打你
+  },
+  {
     name: '下界传送门',
     goals: [
       { item: 'flint_and_steel' },
@@ -114,9 +121,13 @@ export async function wearArmor(ctx) {
   const { bot } = ctx;
   const slots = { helmet: 'head', chestplate: 'torso', leggings: 'legs', boots: 'feet' };
   for (const item of bot.inventory.items()) {
+    if (item.name === 'golden_boots') continue; // 最后单独穿
     const kind = Object.keys(slots).find((suffix) => item.name.endsWith(`_${suffix}`));
     if (kind) await bot.equip(item, slots[kind]);
     else if (item.name === 'shield') await bot.equip(item, 'off-hand');
   }
+  // 有金靴子就穿金靴子（护甲少 1 点，但下界的猪灵不会主动打你）
+  const goldenBoots = bot.inventory.items().find((item) => item.name === 'golden_boots');
+  if (goldenBoots) await bot.equip(goldenBoots, 'feet');
   ctx.log('穿好了盔甲');
 }
